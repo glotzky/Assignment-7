@@ -9,6 +9,7 @@
 #include "save.h"
 
 #define PORT 8080
+#define SAVE_PATH "savegame.dat"
 
 void send_msg(int sock_fd, struct sockaddr_in* to, struct message* m, int type) {
     m->type = type;
@@ -29,7 +30,18 @@ void fill_update(struct message* m, struct game* g) {
 }
 
 int main(int argc, char* argv[]) {
+    struct gameDB db;
+    memset(&db, 0, sizeof(db));
+    if (argc > 1 && strcmp(argv[1], "1") == 0 && loadgame(&db, SAVE_PATH) < 0) {
+        perror("Failed to load saved games");
+        return 1;
+    }
+
     int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock_fd < 0) {
+        perror("socket");
+        return 1;
+    }
 
     struct sockaddr_in server_addr, client_addr;
     memset(&server_addr, 0, sizeof(server_addr));
@@ -38,36 +50,55 @@ int main(int argc, char* argv[]) {
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
 
-    bind(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    if (bind(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("bind");
+        close(sock_fd);
+        return 1;
+    }
 
     printf("Message board server listening on port %d\n", PORT);
-
-    //TODO: implement game server logic
-    struct gameDB db;
-    memset(&db, 0, sizeof(db));
-
+    
     while (1) {
         struct message m;
         socklen_t len = sizeof(client_addr);
-        recvfrom(sock_fd, &m, sizeof(m), 0, (struct sockaddr*)&client_addr, &len);
+        ssize_t received = recvfrom(sock_fd, &m, sizeof(m), 0,
+                                    (struct sockaddr*)&client_addr, &len);
+        if (received < 0) {
+            perror("recvfrom");
+            continue;
+        }
+        if ((size_t)received != sizeof(m)) {
+            continue;
+        }
 
-        struct game_state* s = &db.games[m.game_id];
         if (m.type == MESSAGE_CREATE) {
-            s = &db.games[db.next_game_id];
+            if (db.next_game_id >= MAX_GAMES) {
+                send_msg(sock_fd, &client_addr, &m, MESSAGE_ERROR);
+                continue;
+            }
+            struct game_state* s = &db.games[db.next_game_id];
             new_game(&s->game, db.next_game_id++);
             s->clients[0] = client_addr;
+            s->player_count = 1;
             fill_update(&m, &s->game);
             send_msg(sock_fd, &client_addr, &m, MESSAGE_WAIT);
-        } else if (m.game_id < 0 || m.game_id >= db.next_game_id) {
+        } else if (m.game_id < 0 || m.game_id >= db.next_game_id ||
+                   m.game_id >= MAX_GAMES) {
             send_msg(sock_fd, &client_addr, &m, MESSAGE_ERROR);
         } else if (m.type == MESSAGE_JOIN) {
+            struct game_state* s = &db.games[m.game_id];
             s->clients[1] = client_addr;
+            s->player_count = 2;
             fill_update(&m, &s->game);
             send_msg(sock_fd, &client_addr, &m, MESSAGE_WAIT);
             send_msg(sock_fd, &s->clients[0], &m, MESSAGE_UPDATE);
         } else if (m.type == MESSAGE_MOVE) {
+            struct game_state* s = &db.games[m.game_id];
             int p = client_addr.sin_port == s->clients[1].sin_port;
             if (p == s->game.current_player && make_move(&s->game, p, m.column) == 0) {
+                if (savegame(&db, SAVE_PATH) < 0) {
+                    perror("Failed to save games");
+                }
                 fill_update(&m, &s->game);
                 send_msg(sock_fd, &s->clients[0], &m, MESSAGE_UPDATE);
                 send_msg(sock_fd, &s->clients[1], &m, MESSAGE_UPDATE);

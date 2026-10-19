@@ -1,1 +1,8 @@
-(1) A dropped UDP packet can cause the game to stop progressing. If the server misses a client move, the client can possibly never receive a response. If a client misses an update from the server, its board may become outdated or it may not realize its turn has started yet. Since messages are not resent after the first request the problem may persist.
+(1) A dropped UDP packet can cause the game to stop progressing.
+If the server misses a client move, the client can possibly never receive a response.
+If a client misses an update from the server, its board may become outdated or it may not realize its turn has started yet.
+Since messages are not resent after the first request the problem may persist.
+
+(2) The save/load functionality has several limitations such as if the server crashes before saving, recent moves may be lost. 
+A corrupted save file could prevent loading. Differences between program versions or machines 
+may cause compatibility issues. It also cannot restore disconnected clients or recover network messages that were lost.
