@@ -1,0 +1,1 @@
+(1) A dropped UDP packet can cause the game to stop progressing. If the server misses a client move, the client can possibly never receive a response. If a client misses an update from the server, its board may become outdated or it may not realize its turn has started yet. Since messages are not resent after the first request the problem may persist.
